@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediawiki-service
+  labels:
+    app: mediawiki
+    tier: web
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: redis
+    tier: web

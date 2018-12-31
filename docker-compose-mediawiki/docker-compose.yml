@@ -1,0 +1,25 @@
+
+version: "3"
+services:
+  mediawiki:
+      image: mediawiki
+      restart: always
+      ports: 
+        - "8008:80"
+      links:
+        - mysql
+      networks:
+        - default
+  mysql:
+      image: mariadb
+      restart: always
+      ports: 
+        - "3306:3306"
+      environment:
+        MYSQL_DATABASE: mydb
+        MYSQL_USER: user
+        MYSQL_PASSWORD: test
+        MYSQL_ROOT_PASSWORD: test
+      volumes:
+        - ./LocalSettings.php:/var/www/html/LocalSettings.php
+

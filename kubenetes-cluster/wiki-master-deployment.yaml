@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediawiki-master
+  labels:
+    app: mwdiawiki
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      tier: web
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: redis
+        tier: web
+    spec:
+      containers:
+      - name: mediawiki-php
+        image: mediawiki:1.31
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        ports:
+        - containerPort: 8080
+      - name: mediawiki-mysql
+        image: mysql:8
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        ports:
+        - containerPort: 8081
+

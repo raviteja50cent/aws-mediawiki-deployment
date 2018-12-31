@@ -1,0 +1,228 @@
+
+########################### VARIABLES ###########################
+
+variable "aws_access_key_id" {}
+variable "aws_secret_access_key" {}
+variable "private_key" {}
+variable "key_name" {
+    default = "kalipatr"
+}
+variable "network_address_space" {
+    default = "10.1.0.0/16"
+}
+variable "subnet1_address_space" {
+    default = "10.1.0.0/24"
+}
+variable "subnet2_address_space" {
+    default = "10.1.1.0/24"
+}
+
+########################### PROVIDERS ###########################
+
+provider "aws" {
+    access_key = "${var.aws_access_key_id}"
+    secret_key = "${var.aws_secret_access_key}"
+    region = "us-east-1"
+}
+
+########################### DATA ###########################
+
+data "aws_availability_zones" "available" {}
+
+########################### RESOURCES ###########################
+
+# NETWORKING
+
+resource "aws_vpc" "vpc" {
+    cidr_block = "${var.network_address_space}"
+    enable_dns_hostnames = "true"
+}
+
+resource "aws_internet_gateway" "igw" {
+    vpc_id = "${aws_vpc.vpc.id}"
+
+}
+
+resource "aws_subnet" "subnet1" {
+    cidr_block = "${var.subnet1_address_space}"
+    vpc_id = "${aws_vpc.vpc.id}"
+    map_public_ip_on_launch = "true"
+    availability_zone = "${data.aws_availability_zones.available.names[0]}"
+}
+
+resource "aws_subnet" "subnet2" {
+    cidr_block = "${var.subnet2_address_space}"
+    vpc_id = "${aws_vpc.vpc.id}"
+    map_public_ip_on_launch = "true"
+    availability_zone = "${data.aws_availability_zones.available.names[1]}"
+}
+
+# ROUTING
+
+resource "aws_route_table" "rtb" {
+    vpc_id = "${aws_vpc.vpc.id}"
+
+    route {
+        cidr_block = "0.0.0.0/0"
+        gateway_id = "${aws_internet_gateway.igw.id}"
+    }
+}
+
+resource "aws_route_table_association" "rta_subnet1" {
+    subnet_id = "${aws_subnet.subnet1.id}"
+    route_table_id = "${aws_route_table.rtb.id}"
+}
+
+resource "aws_route_table_association" "rta_subnet2" {
+    subnet_id = "${aws_subnet.subnet2.id}"
+    route_table_id = "${aws_route_table.rtb.id}"
+}
+
+# SECURITY GROUPS
+
+# Load Balancer Security Group
+
+resource "aws_security_group" "elb-sg" {
+    name = "apache_elb_sg"
+    vpc_id = "${aws_vpc.vpc.id}"
+
+    # Allow HTTP from anywhere
+    ingress {
+        from_port = 80
+        to_port = 80
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    # Allow all oubound traffic
+    egress {
+        from_port = 0 
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+}
+
+# Apache security group
+
+resource "aws_security_group" "apache-sg" {
+    name = "apache_sg"
+    vpc_id = "${aws_vpc.vpc.id}"
+
+    # SSH from anywhere
+    ingress {
+        from_port = 22
+        to_port = 22
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    # HTTP access from anywhere
+    ingress {
+        from_port = 80
+        to_port = 80
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    # Outbound internet access
+    egress {
+        from_port = 0
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+}
+
+########################### LOAD BALANCER ###########################
+
+resource "aws_elb" "web" {
+    name = "apache-elb"
+
+    subnets = ["${aws_subnet.subnet1.id}", "${aws_subnet.subnet2.id}"]
+    security_groups = ["${aws_security_group.apache-sg.id}"]
+    instances = ["${aws_instance.apache1.id}", "${aws_instance.apache2.id}"]
+
+    listener {
+        instance_port = 80
+        instance_protocol = "http"
+        lb_port = 80
+        lb_protocol = "http"
+    }
+}
+
+
+### Instances ###
+# Instance 1
+
+resource "aws_instance" "apache1" {
+    ami = "ami-0080e4c5bc078760e"
+    instance_type = "t2.micro"
+    subnet_id = "${aws_subnet.subnet1.id}"
+    vpc_security_group_ids = ["${aws_security_group.apache-sg.id}"]
+    key_name = "${var.key_name}"
+
+    connection {
+        user = "ec2-user"
+        private_key = "${file("${var.private_key}")}"
+    }
+
+    provisioner "remote-exec" {
+        inline = [
+            "ls -la",
+            "sudo yum -y update",
+            "sudo yum install -y httpd",
+            "sudo service httpd start",
+            "sudo service httpd status",
+            "ps -aux | grep httpd"
+        ]
+    }
+
+    provisioner "file" {
+        source = "index.html"
+        destination = "/var/www/html/index.html"
+    }
+
+}
+
+# Instance 2
+
+resource "aws_instance" "apache2" {
+    ami = "ami-0080e4c5bc078760e"
+    instance_type = "t2.micro"
+    subnet_id = "${aws_subnet.subnet2.id}"
+    vpc_security_group_ids = ["${aws_security_group.apache-sg.id}"]
+    key_name = "${var.key_name}"
+
+    connection {
+        user = "ec2-user"
+        private_key = "${file("${var.private_key}")}"
+    }
+
+    provisioner "remote-exec" {
+        inline = [
+            "ls -la",
+            "sudo yum -y update",
+            "sudo yum install -y httpd",
+            "sudo service httpd start",
+            "sudo service httpd status",
+            "ps -aux | grep httpd"
+        ]
+    }
+
+    provisioner "file" {
+        source = "index1.html"
+        destination = "/var/www/html/index1.html"
+    }
+
+}
+
+########################### RESOURCES ###########################
+
+// output "aws_instance_public_dns" {
+//     value = "${aws_instance.apache1.public_dns}"
+// }
+
+output "aws_elb_public_dns" {
+    value = "${aws_elb.web.dns_name}"
+}
